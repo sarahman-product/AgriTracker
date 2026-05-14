@@ -1,0 +1,584 @@
+# AgriTrack OpenAPI Specification
+
+## OpenAPI 3.0.0
+
+```yaml
+openapi: 3.0.0
+info:
+  title: AgriTrack API
+  description: Agricultural traceability platform API
+  version: 1.0.0
+  contact:
+    name: AgriTrack API Support
+    email: api-support@agritrack.in
+
+servers:
+  - url: https://api.agritrack.in/v1
+    description: Production
+  - url: https://api-staging.agritrack.in/v1
+    description: Staging
+  - url: http://localhost:3000/v1
+    description: Development
+
+tags:
+  - name: Authentication
+    description: OTP and session management
+  - name: Users
+    description: User management and roles
+  - name: Programs
+    description: Program configuration
+  - name: Crops
+    description: Crop framework management
+  - name: Farmers
+    description: Farmer onboarding and management
+  - name: Farms
+    description: Farm creation and geo-tagging
+  - name: Enrollments
+    description: Crop enrollment on farms
+  - name: Surveys
+    description: POP survey builder and responses
+  - name: Visits
+    description: Field visit tracking
+  - name: Procurements
+    description: Procurement entry and management
+  - name: GRNs
+    description: Goods Receipt Note management
+  - name: Vendors
+    description: Vendor onboarding
+  - name: Dispatches
+    description: Dispatch and delivery
+  - name: Traceability
+    description: Lot traceability and QR lookup
+  - name: Analytics
+    description: Dashboard and KPI data
+  - name: Reports
+    description: Report generation and export
+  - name: Sync
+    description: Offline data synchronization
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        mobile:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, admin, program_manager, cluster_manager, field_agent, vendor]
+        is_active:
+          type: boolean
+
+    Farmer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        first_name:
+          type: string
+        last_name:
+          type: string
+        mobile:
+          type: string
+        kyc_status:
+          type: string
+          enum: [pending, in_progress, verified, rejected]
+        village:
+          type: string
+        district:
+          type: string
+
+    Farm:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        farmer_id:
+          type: string
+          format: uuid
+        farm_name:
+          type: string
+        area_acres:
+          type: number
+        gps_polygon:
+          type: array
+          items:
+            type: object
+            properties:
+              lat:
+                type: number
+              lng:
+                type: number
+
+    Survey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        form_schema_json:
+          type: object
+
+    Procurement:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        farmer_id:
+          type: string
+          format: uuid
+        net_weight:
+          type: number
+        grade:
+          type: string
+          enum: [A, B, C, reject]
+        total_amount:
+          type: number
+
+    GRN:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        grn_number:
+          type: string
+        qr_code_url:
+          type: string
+        pdf_url:
+          type: string
+
+    TraceabilityChain:
+      type: object
+      properties:
+        lot_id:
+          type: string
+          format: uuid
+        farmer:
+          type: object
+        farm:
+          type: object
+        crop:
+          type: object
+        journey:
+          type: array
+
+paths:
+  /auth/otp:
+    post:
+      summary: Send OTP to mobile
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mobile
+              properties:
+                mobile:
+                  type: string
+      responses:
+        '200':
+          description: OTP sent successfully
+        '400':
+          $ref: '#/components/schemas/Error'
+
+  /auth/verify:
+    post:
+      summary: Verify OTP and return JWT
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mobile
+                - otp
+              properties:
+                mobile:
+                  type: string
+                otp:
+                  type: string
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      refresh_token:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+
+  /users/me:
+    get:
+      summary: Get current user
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/schemas/Error'
+
+  /farmers:
+    get:
+      summary: List farmers
+      tags: [Farmers]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: village
+          schema:
+            type: string
+        - in: query
+          name: kyc_status
+          schema:
+            type: string
+            enum: [pending, in_progress, verified, rejected]
+      responses:
+        '200':
+          description: Paginated farmer list
+
+    post:
+      summary: Create farmer (offline-capable)
+      tags: [Farmers]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - first_name
+                - mobile
+              properties:
+                first_name:
+                  type: string
+                last_name:
+                  type: string
+                mobile:
+                  type: string
+      responses:
+        '201':
+          description: Farmer created
+        '400':
+          $ref: '#/components/schemas/Error'
+
+  /surveys:
+    get:
+      summary: List surveys
+      tags: [Surveys]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Survey list
+
+    post:
+      summary: Create survey
+      tags: [Surveys]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - form_schema_json
+              properties:
+                title:
+                  type: string
+                form_schema_json:
+                  type: object
+      responses:
+        '201':
+          description: Survey created
+
+  /procurements:
+    post:
+      summary: Create procurement
+      tags: [Procurements]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - farmer_id
+                - center_id
+                - crop_id
+                - gross_weight
+                - moisture_percent
+                - grade
+                - rate_per_kg
+              properties:
+                farmer_id:
+                  type: string
+                  format: uuid
+                center_id:
+                  type: string
+                  format: uuid
+                crop_id:
+                  type: string
+                  format: uuid
+                gross_weight:
+                  type: number
+                moisture_percent:
+                  type: integer
+                admixture_percent:
+                  type: number
+                grade:
+                  type: string
+                  enum: [A, B, C, reject]
+                rate_per_kg:
+                  type: number
+                payment_mode:
+                  type: string
+                  enum: [cash, cheque, neft, upi]
+      responses:
+        '201':
+          description: Procurement created, GRN auto-generated
+
+  /trace/{lotId}:
+    get:
+      summary: Get traceability chain
+      tags: [Traceability]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: lotId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Traceability chain
+
+  /trace/public/{lotId}:
+    get:
+      summary: Public trace view (no auth)
+      tags: [Traceability]
+      parameters:
+        - in: path
+          name: lotId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Public traceability data
+
+  /analytics/dashboard/{role}:
+    get:
+      summary: Get role-specific dashboard
+      tags: [Analytics]
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: role
+          required: true
+          schema:
+            type: string
+            enum: [agent, cluster_manager, procurement_manager, program_manager]
+      responses:
+        '200':
+          description: Dashboard data
+
+  /sync/batch:
+    post:
+      summary: Submit offline batch sync
+      tags: [Sync]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                records:
+                  type: array
+                  items:
+                    type: object
+                priority:
+                  type: string
+                  enum: [high, normal, low]
+                  default: normal
+      responses:
+        '200':
+          description: Sync completed
+
+# Add more paths as needed for each service
+```
+
+---
+
+## Schema Definitions (Complete List)
+
+### Authentication
+- AuthOTPRequest
+- AuthVerifyRequest
+- AuthResponse
+- RefreshTokenRequest
+
+### Users
+- CreateUserRequest
+- UpdateUserRequest
+- UserResponse
+- UserListResponse
+
+### Programs
+- CreateProgramRequest
+- UpdateProgramRequest
+- ProgramResponse
+
+### Crops
+- CreateCropCategoryRequest
+- CreateCropGroupRequest
+- CreateCropRequest
+- CreateVarietyRequest
+- CreateStageRequest
+
+### Farmers
+- CreateFarmerRequest
+- UpdateFarmerRequest
+- FarmerResponse
+- FarmerSearchRequest
+
+### Farms
+- CreateFarmRequest
+- UpdateFarmRequest
+- FarmResponse
+
+### Surveys
+- CreateSurveyRequest
+- UpdateSurveyRequest
+- SurveyResponse
+- SurveyResponseSubmit
+
+### Visits
+- StartVisitRequest
+- EndVisitRequest
+- VisitResponse
+
+### Procurements
+- CreateProcurementRequest
+- ProcurementResponse
+
+### GRNs
+- GRNResponse
+- GRNAmendmentRequest
+
+### Vendors
+- CreateVendorRequest
+- VendorResponse
+
+### Dispatches
+- CreateDispatchRequest
+- DispatchConfirmRequest
+- DispatchResponse
+
+### Traceability
+- TraceabilityChainResponse
+- PublicTraceResponse
+
+### Analytics
+- DashboardResponse
+- KPIResponse
+
+---
+
+## Implementation Notes
+
+1. Generate server stubs from this spec
+2. Validate all requests against schemas
+3. Document all changes in changelog
+4. Maintain backward compatibility
